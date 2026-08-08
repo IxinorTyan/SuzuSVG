@@ -139,27 +139,50 @@ export function bilateralFilter(img, radius, sigmaColor = 30, sigmaSpace = 3) {
   return { data: out, width, height };
 }
 
-// ---------- Stage 1: K-means颜色量化与碎片清理 ----------
+// ---------- Stage 1: K-means颜色量化（Alpha透明背景感知与碎片清理） ----------
 export function kmeansQuantize(img, k, opts = {}) {
   const { data, width, height } = img;
   const maxIter = opts.maxIter ?? 12;
   const sampleStep = opts.sampleStep ?? 3;
   const n = width * height;
 
+  // 1. 检查是否存在 Alpha 0/透明像素 (< 128)
+  let hasAlpha = false;
+  for (let i = 0; i < n; i++) {
+    if (data[i * 4 + 3] < 128) {
+      hasAlpha = true;
+      break;
+    }
+  }
+
+  // 若有透明像素，预留 1 个专用透明 Label 0，RGB 占 k - 1 个聚类中心；否则占 k 个
+  const rgbK = hasAlpha ? Math.max(1, k - 1) : k;
+
+  // 采样不透明像素（alpha >= 128）用于找 RGB 聚类中心
   const samples = [];
   for (let i = 0; i < n; i += sampleStep) {
     const idx = i * 4;
-    samples.push([data[idx], data[idx + 1], data[idx + 2]]);
+    if (data[idx + 3] >= 128) {
+      samples.push([data[idx], data[idx + 1], data[idx + 2]]);
+    }
   }
 
+  // 兜底：若全图都是透明像素
+  if (samples.length === 0) {
+    const labels = new Int32Array(n).fill(0);
+    const palette = [[0, 0, 0, 0]];
+    return { labels, palette, width, height };
+  }
+
+  // k-means++ 初始化 RGB 聚类中心
   const centers = [];
   centers.push(samples[Math.floor(Math.random() * samples.length)]);
-  while (centers.length < k) {
+  while (centers.length < rgbK) {
     let distSum = 0;
     const dists = samples.map((s) => {
       let best = Infinity;
       for (const c of centers) {
-        const d = (s[0]-c[0])**2 + (s[1]-c[1])**2 + (s[2]-c[2])**2;
+        const d = (s[0] - c[0]) ** 2 + (s[1] - c[1]) ** 2 + (s[2] - c[2]) ** 2;
         if (d < best) best = d;
       }
       distSum += best;
@@ -174,38 +197,69 @@ export function kmeansQuantize(img, k, opts = {}) {
     centers.push(chosen.slice());
   }
 
+  // 迭代 RGB K-means
   for (let iter = 0; iter < maxIter; iter++) {
     const sums = centers.map(() => [0, 0, 0, 0]);
     for (const s of samples) {
       let best = 0, bestD = Infinity;
       for (let c = 0; c < centers.length; c++) {
         const cc = centers[c];
-        const d = (s[0]-cc[0])**2 + (s[1]-cc[1])**2 + (s[2]-cc[2])**2;
+        const d = (s[0] - cc[0]) ** 2 + (s[1] - cc[1]) ** 2 + (s[2] - cc[2]) ** 2;
         if (d < bestD) { bestD = d; best = c; }
       }
       sums[best][0] += s[0]; sums[best][1] += s[1]; sums[best][2] += s[2]; sums[best][3]++;
     }
     for (let c = 0; c < centers.length; c++) {
       if (sums[c][3] > 0) {
-        centers[c] = [sums[c][0]/sums[c][3], sums[c][1]/sums[c][3], sums[c][2]/sums[c][3]];
+        centers[c] = [sums[c][0] / sums[c][3], sums[c][1] / sums[c][3], sums[c][2] / sums[c][3]];
       }
     }
   }
 
+  // 分配像素标签
   const labels = new Int32Array(n);
-  for (let i = 0; i < n; i++) {
-    const idx = i * 4;
-    const r = data[idx], g = data[idx+1], b = data[idx+2];
-    let best = 0, bestD = Infinity;
-    for (let c = 0; c < centers.length; c++) {
-      const cc = centers[c];
-      const d = (r-cc[0])**2 + (g-cc[1])**2 + (b-cc[2])**2;
-      if (d < bestD) { bestD = d; best = c; }
+  const palette = [];
+
+  if (hasAlpha) {
+    // Label 0: 专用透明通道 [0, 0, 0, 0]
+    palette.push([0, 0, 0, 0]);
+    // Centers 对应 Label 1 ~ rgbK
+    for (const c of centers) {
+      palette.push([Math.round(c[0]), Math.round(c[1]), Math.round(c[2]), 255]);
     }
-    labels[i] = best;
+
+    for (let i = 0; i < n; i++) {
+      const idx = i * 4;
+      if (data[idx + 3] < 128) {
+        labels[i] = 0; // 透明像素分配 Label 0
+      } else {
+        const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+        let best = 0, bestD = Infinity;
+        for (let c = 0; c < centers.length; c++) {
+          const cc = centers[c];
+          const d = (r - cc[0]) ** 2 + (g - cc[1]) ** 2 + (b - cc[2]) ** 2;
+          if (d < bestD) { bestD = d; best = c; }
+        }
+        labels[i] = best + 1; // 偏移 1
+      }
+    }
+  } else {
+    for (const c of centers) {
+      palette.push([Math.round(c[0]), Math.round(c[1]), Math.round(c[2]), 255]);
+    }
+    for (let i = 0; i < n; i++) {
+      const idx = i * 4;
+      const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+      let best = 0, bestD = Infinity;
+      for (let c = 0; c < centers.length; c++) {
+        const cc = centers[c];
+        const d = (r - cc[0]) ** 2 + (g - cc[1]) ** 2 + (b - cc[2]) ** 2;
+        if (d < bestD) { bestD = d; best = c; }
+      }
+      labels[i] = best;
+    }
   }
 
-  const palette = centers.map((c) => [Math.round(c[0]), Math.round(c[1]), Math.round(c[2])]);
   const merged = mergeCloseClusters(labels, palette);
   return { labels: merged.labels, palette: merged.palette, width, height };
 }
@@ -218,8 +272,11 @@ function mergeCloseClusters(labels, palette, colorDistThreshold = 18) {
 
   for (let i = 0; i < k; i++) {
     for (let j = i + 1; j < k; j++) {
-      const [r1,g1,b1] = palette[i], [r2,g2,b2] = palette[j];
-      const dist = Math.sqrt((r1-r2)**2 + (g1-g2)**2 + (b1-b2)**2);
+      const [r1, g1, b1, a1] = palette[i];
+      const [r2, g2, b2, a2] = palette[j];
+      // 不把透明色块与实色色块合并！
+      if ((a1 === 0) !== (a2 === 0)) continue;
+      const dist = Math.sqrt((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2);
       if (dist < colorDistThreshold) union(i, j);
     }
   }
@@ -234,18 +291,28 @@ function mergeCloseClusters(labels, palette, colorDistThreshold = 18) {
   const pixelCountPerOld = new Array(k).fill(0);
   for (let i = 0; i < labels.length; i++) pixelCountPerOld[labels[i]]++;
 
-  const newPaletteAccum = Array.from({ length: nextLabel }, () => [0, 0, 0, 0]);
+  const newPaletteAccum = Array.from({ length: nextLabel }, () => [0, 0, 0, 0, 0]);
   for (let i = 0; i < k; i++) {
     const nl = rootToNewLabel.get(find(i));
     const w = pixelCountPerOld[i];
+    const isTrans = palette[i][3] === 0;
     newPaletteAccum[nl][0] += palette[i][0] * w;
     newPaletteAccum[nl][1] += palette[i][1] * w;
     newPaletteAccum[nl][2] += palette[i][2] * w;
-    newPaletteAccum[nl][3] += w;
+    newPaletteAccum[nl][3] += isTrans ? 0 : w;
+    newPaletteAccum[nl][4] += w;
   }
-  const newPalette = newPaletteAccum.map((acc) => acc[3] > 0
-    ? [Math.round(acc[0]/acc[3]), Math.round(acc[1]/acc[3]), Math.round(acc[2]/acc[3])]
-    : [0, 0, 0]);
+  const newPalette = newPaletteAccum.map((acc) => {
+    if (acc[4] === 0) return [0, 0, 0, 0];
+    const isTrans = acc[3] === 0;
+    if (isTrans) return [0, 0, 0, 0];
+    return [
+      Math.round(acc[0] / acc[4]),
+      Math.round(acc[1] / acc[4]),
+      Math.round(acc[2] / acc[4]),
+      255
+    ];
+  });
 
   const oldToNew = new Int32Array(k);
   for (let i = 0; i < k; i++) oldToNew[i] = rootToNewLabel.get(find(i));
@@ -561,9 +628,30 @@ function polygonSetArea(loops) {
 export function traceContoursShared(labels, width, height, numColors, epsilon = 1.2) {
   const graph = buildBoundaryGraph(labels, width, height);
   const rawArcs = extractArcs(graph);
+  let rawLoopVertexCount = 0;
+  for (const arc of rawArcs) {
+    rawLoopVertexCount += arc.pts.length;
+  }
+
   const simplifiedArcs = simplifyArcsSet(rawArcs, width, epsilon);
   const regions = assembleRegionLoops(simplifiedArcs, numColors);
-  return regions.map((r) => ({ ...r, area: polygonSetArea(r.loops) }));
+
+  let rdpSimplifiedVertexCount = 0;
+  for (const r of regions) {
+    for (const l of r.loops) {
+      rdpSimplifiedVertexCount += l.length;
+    }
+  }
+
+  const regionObjects = regions.map((r) => ({ ...r, area: polygonSetArea(r.loops) }));
+
+  return {
+    regions: regionObjects,
+    stats: {
+      rawLoopVertexCount,
+      rdpSimplifiedVertexCount
+    }
+  };
 }
 
 function perpendicularDist(pt, a, b) {
@@ -609,12 +697,10 @@ export function simplifyLoop(loop, epsilon) {
 }
 
 // ---------- Adaptive Curve Fitting Eligibility Heuristic Check ----------
-// 低成本预检：只有具有明显平滑曲线特征的 Loop 才进入 Stage 4 & 5 完整拟合
 function checkCurveEligibility(loop) {
   const n = loop.length;
   if (n < 3) return false;
 
-  // 1. 如果顶点数极少（< 8），检查是否存在连续且显著的圆滑转角特征
   if (n < 8) {
     let maxAngle = 0;
     let smoothAngleCount = 0;
@@ -632,21 +718,18 @@ function checkCurveEligibility(loop) {
         const dot = (v1x * v2x + v1y * v2y) / (len1 * len2);
         const angle = Math.acos(Math.max(-1, Math.min(1, dot))) * (180 / Math.PI);
         if (angle > maxAngle) maxAngle = angle;
-        // 中等平缓转角（15°~60°），说明有平滑曲线特征
         if (angle >= 15 && angle <= 60) {
           smoothAngleCount++;
         }
       }
     }
 
-    // 若最大转角小于 12°（几乎为纯直线）或不存在连续平缓曲线转角，直接 Skip
     if (maxAngle < 12 || smoothAngleCount < 2) {
       return false;
     }
     return true;
   }
 
-  // 2. 对于 >= 8 个顶点的多边形，检查是否绝大部分是纯直线/直角
   let nonStraightCount = 0;
   for (let i = 0; i < n; i++) {
     const prev = loop[(i - 1 + n) % n];
@@ -666,7 +749,6 @@ function checkCurveEligibility(loop) {
     }
   }
 
-  // 若平缓曲线转角占比大于 15%，判定为 Eligible Candidate
   return (nonStraightCount / n) >= 0.15;
 }
 
@@ -767,15 +849,14 @@ function splitLoopByCorners(loop, corners) {
   return subChains;
 }
 
-// 零对象分配点到线段距离计算（用于双向误差热循环采样）
 function pointToSegmentDistanceScalar(px, py, x1, y1, x2, y2) {
   const dx = x2 - x1, dy = y2 - y1;
   const len2 = dx * dx + dy * dy;
   if (len2 === 0) return Math.hypot(px - x1, py - y1);
   let t = ((px - x1) * dx + (py - y1) * dy) / len2;
   t = Math.max(0, Math.min(1, t));
-  const projX = x1 + t * dx, projY = y1 + t * dy;
-  return Math.hypot(px - projX, py - projY);
+  const projX = x1 + t * dx, py_proj = y1 + t * dy;
+  return Math.hypot(px - projX, py - py_proj);
 }
 
 // ---------- Stage 5: Curve Fitting (Schneider三次贝塞尔曲线拟合 + 双向误差验证) ----------
@@ -847,7 +928,6 @@ function fitCubicBezierToChain(points, tolerance, depth, chainStats) {
   c1 = [p0[0] + alpha1 * t1[0], p0[1] + alpha1 * t1[1]];
   c2 = [pm[0] + alpha2 * t2[0], pm[0] + alpha2 * t2[1]];
 
-  // 双向误差验证 (Bidirectional Error Verification - 零对象分配标量计算)
   let maxForwardErr = 0;
   let splitIdx = Math.floor(m / 2);
 
@@ -937,25 +1017,18 @@ export function fitCurvesToRegions(regions, options = {}) {
 
       if (numPts < 3) {
         curveFittingSkipped++;
-        return [];
+        outputLineSegments += numPts;
+        return loop; // 直接返回 Stage 3 RDP 简化环坐标数组
       }
 
-      // Adaptive Eligibility Heuristic Check
+      // Adaptive Eligibility Check based on Stage 3 Simplified Loop
       const isCandidate = checkCurveEligibility(loop);
 
       if (!isCandidate) {
         curveFittingSkipped++;
-        // 直接转换为 Line Segments，不进行任何角点检测与贝塞尔拟合热循环
-        const directLineSegs = [];
-        for (let i = 0; i < numPts; i++) {
-          directLineSegs.push({
-            type: 'line',
-            p0: loop[i],
-            p1: loop[(i + 1) % numPts]
-          });
-          outputLineSegments++;
-        }
-        return directLineSegs;
+        outputLineSegments += numPts;
+        // 直接保留 Stage 3 RDP 简化环，不进行任何 Segment 对象包装或热循环开销
+        return loop;
       }
 
       curveFittingCandidates++;
@@ -987,6 +1060,11 @@ export function fitCurvesToRegions(regions, options = {}) {
         }
       }
 
+      // 若拟合出来的所有子链全都是直线段，直接保留 Stage 3 RDP 简化环，不生成 Segment 对象
+      if (loopSegments.length > 0 && loopSegments.every(s => s.type === 'line')) {
+        return loop;
+      }
+
       return loopSegments;
     });
 
@@ -999,7 +1077,6 @@ export function fitCurvesToRegions(regions, options = {}) {
   const finalSegmentCount = outputLineSegments + outputCubicSegments;
   const outputControlPoints = (outputLineSegments * 2) + (outputCubicSegments * 4);
   const geometryObjectCount = outputLineSegments + outputCubicSegments;
-  // Estimated Geometry Memory KB (用于比较趋势，非浏览器实际 Heap)
   const estimatedGeometryMemoryKB = Number(((inputVertices * 16 + geometryObjectCount * 96) / 1024).toFixed(2));
 
   const stats = {
@@ -1190,7 +1267,14 @@ export function buildSVG(regions, palette, width, height, simplifyEpsilon = 1.2,
 
   parts.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">`);
   for (const region of sorted) {
-    const [r, g, b] = palette[region.colorIndex];
+    const color = palette[region.colorIndex];
+    if (!color) continue;
+    const [r, g, b, a] = color;
+    // 如果是透明色块（a === 0），跳过生成 path，完美保留透明底！
+    if (a !== undefined && a === 0) {
+      continue;
+    }
+
     const fill = `rgb(${r},${g},${b})`;
     let d = '';
 
