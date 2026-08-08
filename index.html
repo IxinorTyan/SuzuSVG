@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SuzuSVG — 图像转SVG</title>
+<link rel="icon" type="image/svg+xml" href="ico.svg">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,6 +12,31 @@
     <h1 data-i18n="headerTitle">SuzuSVG</h1>
     <p class="subtitle" data-i18n="subtitle">图像 → 矢量 SVG · 纯本地处理，图片不会上传到任何服务器</p>
     <div class="topbar-actions">
+      <!-- 预览画布背景色下拉设置组件 -->
+      <div class="canvas-bg-picker-wrap">
+        <button id="canvasBgBtn" class="bg-picker-btn">🎨 <span data-i18n="canvasBgBtn">画布背景</span></button>
+        <div id="canvasBgPopover" class="bg-picker-popover">
+          <div class="popover-row">
+            <span class="popover-label" data-i18n="canvasBgPreset">快捷预设:</span>
+            <div class="bg-preset-group">
+              <button type="button" class="preset-btn active" data-preset="checker" title="棋盘格透明"></button>
+              <button type="button" class="preset-btn" data-preset="#ffffff" style="background:#ffffff;" title="纯白"></button>
+              <button type="button" class="preset-btn" data-preset="#1a1b1f" style="background:#1a1b1f;" title="暗灰"></button>
+              <button type="button" class="preset-btn" data-preset="#000000" style="background:#000000;" title="纯黑"></button>
+            </div>
+          </div>
+          <div class="popover-row">
+            <span class="popover-label" data-i18n="canvasBgColor">自定颜色:</span>
+            <input type="color" id="canvasBgColorInput" value="#1a1b1f">
+          </div>
+          <div class="popover-row">
+            <span class="popover-label" data-i18n="canvasBgOpacity">不透明度:</span>
+            <input type="range" id="canvasBgOpacityInput" min="0" max="100" value="100" step="5">
+            <span id="canvasBgOpacityVal" class="popover-val">100%</span>
+          </div>
+        </div>
+      </div>
+
       <button id="guideBtn" class="guide-btn">📖 <span data-i18n="guideBtn">使用说明 / 指南</span></button>
       <button id="langToggleBtn" class="lang-btn">🌐 English</button>
     </div>

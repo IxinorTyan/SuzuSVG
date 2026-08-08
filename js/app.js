@@ -35,6 +35,11 @@ const els = {
   dragOverlay: document.getElementById('dragOverlay'),
   magnifierLens: document.getElementById('magnifierLens'),
   magnifierCanvas: document.getElementById('magnifierCanvas'),
+  canvasBgBtn: document.getElementById('canvasBgBtn'),
+  canvasBgPopover: document.getElementById('canvasBgPopover'),
+  canvasBgColorInput: document.getElementById('canvasBgColorInput'),
+  canvasBgOpacityInput: document.getElementById('canvasBgOpacityInput'),
+  canvasBgOpacityVal: document.getElementById('canvasBgOpacityVal'),
 };
 
 let currentImageData = null;
@@ -49,6 +54,83 @@ els.langToggleBtn.addEventListener('click', () => {
   toggleLanguage();
   updateDownloadSizeDisplay();
 });
+
+// ---- 画布背景色/不透明度调节逻辑 ----
+function hexToRgba(hex, alpha) {
+  let c = hex.replace('#', '');
+  if (c.length === 3) {
+    c = c.split('').map(x => x + x).join('');
+  }
+  const num = parseInt(c, 16);
+  const r = (num >> 16) & 255;
+  const g = (num >> 8) & 255;
+  const b = num & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+let activePreset = 'checker';
+
+function applyCanvasBg() {
+  const opacity = parseInt(els.canvasBgOpacityInput.value, 10) / 100;
+  if (els.canvasBgOpacityVal) els.canvasBgOpacityVal.textContent = `${els.canvasBgOpacityInput.value}%`;
+
+  if (activePreset === 'checker') {
+    // 纯棋盘格透明状态
+    const rgba = hexToRgba('#1a1b1f', opacity);
+    document.documentElement.style.setProperty('--canvas-bg-color', rgba);
+    document.documentElement.style.setProperty('--canvas-bg-image', '');
+  } else {
+    // 指定颜色 + 透明度（移除棋盘格网格）
+    const hex = els.canvasBgColorInput.value;
+    const rgba = hexToRgba(hex, opacity);
+    document.documentElement.style.setProperty('--canvas-bg-color', rgba);
+    document.documentElement.style.setProperty('--canvas-bg-image', 'none');
+  }
+}
+
+if (els.canvasBgBtn && els.canvasBgPopover) {
+  els.canvasBgBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    els.canvasBgPopover.classList.toggle('active');
+  });
+
+  els.canvasBgPopover.addEventListener('click', (e) => {
+    e.stopPropagation();
+  });
+
+  document.addEventListener('click', () => {
+    els.canvasBgPopover.classList.remove('active');
+  });
+}
+
+// 预设按钮事件
+const presetBtns = document.querySelectorAll('.bg-preset-group .preset-btn');
+presetBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    presetBtns.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const preset = btn.getAttribute('data-preset');
+    activePreset = preset;
+    if (preset !== 'checker') {
+      els.canvasBgColorInput.value = preset;
+    }
+    applyCanvasBg();
+  });
+});
+
+if (els.canvasBgColorInput) {
+  els.canvasBgColorInput.addEventListener('input', () => {
+    activePreset = 'custom';
+    presetBtns.forEach(b => b.classList.remove('active'));
+    applyCanvasBg();
+  });
+}
+
+if (els.canvasBgOpacityInput) {
+  els.canvasBgOpacityInput.addEventListener('input', () => {
+    applyCanvasBg();
+  });
+}
 
 // ---- 动态模式切换（Segmented Pill 按钮组事件委托） ----
 const vectorModeGroup = document.getElementById('vectorModeGroup');

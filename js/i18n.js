@@ -40,6 +40,12 @@ export const translations = {
     footerNotice: "开源项目 · 基于 MIT 协议纯前端本地处理",
     dragOverlayText: "释放图片到任意位置即可导入",
 
+    // 顶栏画布背景多语言
+    canvasBgBtn: "画布背景",
+    canvasBgPreset: "快捷预设:",
+    canvasBgColor: "自定颜色:",
+    canvasBgOpacity: "不透明度:",
+
     // 说明书 Modal 多语言
     guideBtn: "使用说明 / 指南",
     guideTitle: "SuzuSVG 使用说明与参数指南",
@@ -124,6 +130,12 @@ export const translations = {
     stageDE: "Stage D/E · Vector Result",
     footerNotice: "Open Source Project · 100% Local Browser Processing under MIT License",
     dragOverlayText: "Drop image anywhere to import",
+
+    // Canvas Background Picker English
+    canvasBgBtn: "Canvas Background",
+    canvasBgPreset: "Presets:",
+    canvasBgColor: "Custom Color:",
+    canvasBgOpacity: "Opacity:",
 
     // Guide Modal English
     guideBtn: "User Guide",

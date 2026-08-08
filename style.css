@@ -6,6 +6,7 @@
   --text-dim: #9a9ba3;
   --accent: #6fae8f;
   --accent-soft: #3d5c4d;
+  --canvas-bg-color: #1a1b1f;
   font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
@@ -31,6 +32,130 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.bg-picker-btn {
+  background: #ffffff;
+  color: #17181c;
+  border: 1px solid #ffffff;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.bg-picker-btn:hover {
+  background: #f0f0f2;
+  border-color: #f0f0f2;
+}
+
+.canvas-bg-picker-wrap {
+  position: relative;
+}
+
+.bg-picker-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  width: 250px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 1000;
+}
+
+.bg-picker-popover.active {
+  display: flex;
+}
+
+.popover-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+}
+
+.popover-label {
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.popover-val {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  width: 36px;
+  text-align: right;
+}
+
+.bg-preset-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.preset-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid var(--panel-border);
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.15s, border-color 0.15s;
+  position: relative;
+}
+
+.preset-btn[data-preset="checker"] {
+  background:
+    linear-gradient(45deg, #ccc 25%, transparent 25%),
+    linear-gradient(-45deg, #ccc 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #ccc 75%),
+    linear-gradient(-45deg, transparent 75%, #ccc 75%);
+  background-size: 8px 8px;
+  background-position: 0 0, 0 4px, 4px -4px, -4px 0px;
+  background-color: #fff;
+}
+
+.preset-btn:hover {
+  transform: scale(1.15);
+  border-color: var(--text-dim);
+}
+
+.preset-btn.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+input[type="color"]#canvasBgColorInput {
+  -webkit-appearance: none;
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  width: 32px;
+  height: 24px;
+  cursor: pointer;
+  background: transparent;
+  padding: 0;
+}
+
+input[type="color"]#canvasBgColorInput::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+input[type="color"]#canvasBgColorInput::-webkit-color-swatch {
+  border: none;
+  border-radius: 3px;
 }
 
 .guide-btn {
@@ -213,20 +338,22 @@ input[type="range"] {
 }
 
 .canvas-wrap {
-  background:
+  background-image: var(--canvas-bg-image,
     linear-gradient(45deg, #26282e 25%, transparent 25%),
     linear-gradient(-45deg, #26282e 25%, transparent 25%),
     linear-gradient(45deg, transparent 75%, #26282e 75%),
-    linear-gradient(-45deg, transparent 75%, #26282e 75%);
+    linear-gradient(-45deg, transparent 75%, #26282e 75%)
+  );
   background-size: 16px 16px;
   background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
-  background-color: #1a1b1f;
+  background-color: var(--canvas-bg-color);
   border-radius: 6px;
   min-height: 200px;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  transition: background-color 0.15s ease;
 }
 
 .canvas-wrap canvas, .canvas-wrap svg {
@@ -469,7 +596,15 @@ input[type="range"] {
   pointer-events: none;
   z-index: 9990;
   display: none;
-  background: #141518;
+  background-image: var(--canvas-bg-image,
+    linear-gradient(45deg, #26282e 25%, transparent 25%),
+    linear-gradient(-45deg, #26282e 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #26282e 75%),
+    linear-gradient(-45deg, transparent 75%, #26282e 75%)
+  );
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+  background-color: var(--canvas-bg-color);
 }
 
 .magnifier-lens canvas {
