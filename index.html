@@ -10,33 +10,45 @@
   <header class="topbar">
     <h1 data-i18n="headerTitle">SuzuSVG</h1>
     <p class="subtitle" data-i18n="subtitle">(扁平)插画→ 矢量 SVG · 纯本地处理，图片不会上传到任何服务器</p>
-    <button id="langToggleBtn" class="lang-btn">🌐 English</button>
+    <div class="topbar-actions">
+      <button id="guideBtn" class="guide-btn">📖 <span data-i18n="guideBtn">使用说明 / 指南</span></button>
+      <button id="langToggleBtn" class="lang-btn">🌐 English</button>
+    </div>
   </header>
 
   <main class="layout">
     <aside class="controls">
       <div class="control-block">
-        <label class="file-label" for="fileInput">
+        <label class="file-label">
           <span data-i18n="selectImage">选择图片</span>
-          <input type="file" id="fileInput" accept="image/png,image/jpeg">
+          <input type="file" id="fileInput" accept="image/*">
         </label>
       </div>
 
       <div class="control-block">
         <label>
-          <span class="control-name" data-i18n="colorCount">颜色数量</span>
-          <span class="control-val" id="colorCountVal">14</span>
+          <span class="control-name" data-i18n="scalePercent">缩放比例 (%)</span>
+          <input type="number" class="control-val-input" id="scalePercentVal" min="10" max="100" step="5" value="100">
         </label>
-        <input type="range" id="colorCount" min="4" max="32" value="14" step="1">
+        <input type="range" id="scalePercent" min="10" max="100" value="100" step="5">
+        <p class="hint" data-i18n="scalePercentHint">按百分比等比例缩放图像分辨率，降低矢量复杂度（100% 为原图）</p>
+      </div>
+
+      <div class="control-block">
+        <label>
+          <span class="control-name" data-i18n="colorCount">颜色数量</span>
+          <input type="number" class="control-val-input" id="colorCountVal" min="2" max="64" step="1" value="14">
+        </label>
+        <input type="range" id="colorCount" min="2" max="64" value="14" step="1">
         <p class="hint" data-i18n="colorCountHint">K-means聚类的颜色种类，扁平插画建议 10~20</p>
       </div>
 
       <div class="control-block">
         <label>
           <span class="control-name" data-i18n="medianRadius">降噪半径</span>
-          <span class="control-val" id="medianRadiusVal">2</span>
+          <input type="number" class="control-val-input" id="medianRadiusVal" min="0" max="10" step="1" value="2">
         </label>
-        <input type="range" id="medianRadius" min="0" max="4" value="2" step="1">
+        <input type="range" id="medianRadius" min="0" max="10" value="2" step="1">
         <p class="hint" data-i18n="medianRadiusHint">保边降噪半径，越大越平滑（但可能磨圆细节折角）</p>
       </div>
 
@@ -51,22 +63,23 @@
       <div class="control-block">
         <label>
           <span class="control-name" data-i18n="despeckleMinArea">碎片过滤阈值</span>
-          <span class="control-val" id="despeckleMinAreaVal">80</span>
+          <input type="number" class="control-val-input" id="despeckleMinAreaVal" min="0" max="1000" step="5" value="80">
         </label>
-        <input type="range" id="despeckleMinArea" min="0" max="300" value="80" step="5">
+        <input type="range" id="despeckleMinArea" min="0" max="1000" value="80" step="5">
         <p class="hint" data-i18n="despeckleHint">小于此面积（像素²）的色块碎片会被合并进相邻颜色</p>
       </div>
 
       <div class="control-block">
         <label>
           <span class="control-name" data-i18n="simplifyEpsilon">轮廓简化强度</span>
-          <span class="control-val" id="simplifyEpsilonVal">1.5</span>
+          <input type="number" class="control-val-input" id="simplifyEpsilonVal" min="0" max="10" step="0.1" value="1.5">
         </label>
-        <input type="range" id="simplifyEpsilon" min="0" max="4" value="1.5" step="0.1">
+        <input type="range" id="simplifyEpsilon" min="0" max="10" value="1.5" step="0.1">
         <p class="hint" data-i18n="simplifyHint">越大路径点越少、边缘越直，适合解构主义风格</p>
       </div>
 
       <button id="runBtn" class="run-btn" disabled data-i18n="runBtn">开始处理</button>
+      <p class="hint run-hint" data-i18n="runBtnHint">提示：因为实际上是代码渲染与算法聚类，即使是同一参数，也可能需要重复运行几次（Reroll）才能出现想要的效果。</p>
 
       <div class="control-block">
         <label class="checkbox-label">
@@ -79,12 +92,13 @@
       <div class="control-block">
         <label class="checkbox-label">
           <input type="checkbox" id="optimizeGeometryToggle">
-          <span class="control-name" data-i18n="optimizeGeometryToggle">启用几何优化 (Geometry Optimization)</span>
+          <span class="control-name" data-i18n="optimizeGeometryToggle">启用几何优化 (Geometry Optimization) (不一定真的会有用)</span>
         </label>
-        <p class="hint" data-i18n="optimizeGeometryHint">清理冗余顶点、共线点、退化多边形，规范化方向，减小文件体积（不改变视觉效果）</p>
+        <p class="hint" data-i18n="optimizeGeometryHint">清理冗余顶点、共线点、退化多边形，减小文件体积（不一定真的会有用，效果取决于具体图像结构）</p>
       </div>
 
       <button id="downloadBtn" class="download-btn" disabled data-i18n="downloadBtn">下载 SVG</button>
+      <p class="hint download-size-hint" id="downloadSizeHint"></p>
 
       <p class="status" id="status" data-i18n="statusInitial">请先选择一张图片</p>
     </aside>
@@ -108,6 +122,86 @@
       </div>
     </section>
   </main>
+
+  <footer class="footer">
+    <span data-i18n="footerNotice">开源项目 · 基于 MIT 协议纯前端本地处理</span>
+    <span class="footer-sep">|</span>
+    <a href="https://github.com/IxinorTyan/SuzuSVG" target="_blank" rel="noopener noreferrer" class="github-link">
+      <svg class="github-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.25.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-.46 2.2-.25 2.2-.25.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub (SuzuSVG)
+    </a>
+  </footer>
+
+  <!-- 全屏炫酷 拖拽导入 Overlayer -->
+  <div id="dragOverlay" class="drag-overlay">
+    <div class="drag-overlay-card">
+      <svg class="drag-overlay-icon" viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="17 8 12 3 7 8"/>
+        <line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+      <p data-i18n="dragOverlayText">释放图片以立即导入</p>
+    </div>
+  </div>
+
+  <!-- 说明书/指南 模态框 Modal -->
+  <div id="guideModal" class="modal-overlay">
+    <div class="modal-dialog">
+      <button id="closeGuideBtn" class="modal-close" aria-label="Close">&times;</button>
+      <div class="modal-header">
+        <h2>📖 <span data-i18n="guideTitle">SuzuSVG 使用说明与参数指南</span></h2>
+      </div>
+      <div class="modal-body">
+        
+        <section class="guide-section highlight-box">
+          <h3>🎯 <span data-i18n="guideScopeTitle">核心定位与适用场景</span></h3>
+          <p data-i18n="guideScopeText">SuzuSVG 专注于将<b>扁平插画、解构主义艺术、线条分明的 Logo/Icon</b> 转换为高质量矢量图。对于此类图片，转换后的 SVG 文件体积可大幅缩小且边缘极度清晰。</p>
+          <div class="guide-badge-wrap">
+            <span class="guide-badge success" data-i18n="guideBadgeSuccess">✅ 推荐：线条简单、平涂色块、解构主义、扁平插画</span>
+            <span class="guide-badge danger" data-i18n="guideBadgeDanger">❌ 不推荐：普通二次元细节画、高密渐变、带杂色网点的写实插画</span>
+          </div>
+        </section>
+
+        <section class="guide-section">
+          <h3>📊 <span data-i18n="guideCaseTitle">真实测试案例对比</span></h3>
+          <div class="case-grid">
+            <div class="case-card case-success">
+              <div class="case-img-wrap"><img src="read/a.png" alt="Case A" class="case-img"></div>
+              <h4 data-i18n="caseATitle">解构主义插画 (案例 A)</h4>
+              <p data-i18n="caseADesc">线条与色块结构清晰，无冗余细节。</p>
+              <div class="case-stat">
+                <span class="stat-tag" data-i18n="caseAEffect">转换效果：完美</span>
+                <span class="stat-tag" data-i18n="caseASize">文件大小：<b>1.1 MB ➔ 11 KB</b> (暴降 99%)</span>
+              </div>
+            </div>
+            <div class="case-card case-warning">
+              <div class="case-img-wrap"><img src="read/b.png" alt="Case B" class="case-img"></div>
+              <h4 data-i18n="caseBTitle">普通二次元插画 (案例 B)</h4>
+              <p data-i18n="caseBDesc">包含大量发丝细节、微小阴影与网点。</p>
+              <div class="case-stat">
+                <span class="stat-tag" data-i18n="caseBEffect">转换效果：较差/色块碎裂</span>
+                <span class="stat-tag" data-i18n="caseBSize">文件大小：<b>0.5 MB ➔ 0.9 MB</b> (反增 80%)</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="guide-section">
+          <h3>⚙️ <span data-i18n="guideParamTitle">参数调优指南</span></h3>
+          <ul class="param-list">
+            <li data-i18n="paramScale"><b>缩放比例 (%)：</b>在矢量化之前等比例缩小像素分辨率，能平滑微小像素噪点，极大降低矢量 Path 节点数并提升运行速度。</li>
+            <li data-i18n="paramColor"><b>颜色数量：</b>K-means 聚类提取的色块种类。色块越少，生成的矢量图越纯净；过高会导致碎片噪点成倍增加。</li>
+            <li data-i18n="paramNoise"><b>降噪半径 / 双边滤波：</b>平滑色彩噪声。勾选双边滤波可以在平滑降噪的同时，更好地保留锐利的色块边缘折角（速度较慢）。</li>
+            <li data-i18n="paramDespeckle"><b>碎片过滤阈值：</b>自动把小于该面积（px²）的孤立微小碎片像素归并进相邻最大的颜色，清理椒盐噪点。</li>
+            <li data-i18n="paramSimplify"><b>轮廓简化强度：</b>使用 RDP 算法拉直多边形边缘。数值越大节点越少、线条越直，非常适合解构主义风格。</li>
+            <li data-i18n="paramGeom"><b>几何优化 (Geometry Optimization)：</b>后处理清理冗余/共线顶点与退化多边形（<i>不一定真的会有用，效果取决于具体的图像几何结构</i>）。</li>
+            <li data-i18n="paramSeam"><b>渲染接缝保护：</b>给矢量 Path 加上同色微细描边，彻底消除游戏引擎/浏览器渲染时的发丝级抗锯齿缝隙。</li>
+          </ul>
+        </section>
+
+      </div>
+    </div>
+  </div>
 
   <script type="module" src="js/app.js"></script>
 </body>

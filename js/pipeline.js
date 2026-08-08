@@ -1,6 +1,66 @@
 // pipeline.js — 纯JS图像转矢量核心算法，无外部依赖，浏览器/Node通用
 // 输入统一格式: { data: Uint8ClampedArray(RGBA), width, height }
 
+// ---------- 0. 输入预处理流水线 (Stage 0: Input Preprocessing Pipeline) ----------
+export function preprocessInput(img, options = {}) {
+  const { scalePercent = 100 } = options;
+  const { width: origWidth, height: origHeight, data } = img;
+
+  const clampedPercent = Math.max(5, Math.min(100, Number(scalePercent) || 100));
+  const scale = clampedPercent / 100;
+
+  let targetWidth = origWidth;
+  let targetHeight = origHeight;
+
+  if (scale < 1.0) {
+    targetWidth = Math.max(1, Math.round(origWidth * scale));
+    targetHeight = Math.max(1, Math.round(origHeight * scale));
+  }
+
+  let processedImg = img;
+
+  if (scale < 1.0) {
+    const canvas = document.createElement('canvas');
+    canvas.width = origWidth;
+    canvas.height = origHeight;
+    const ctx = canvas.getContext('2d');
+    const clamped = new Uint8ClampedArray(data);
+    ctx.putImageData(new ImageData(clamped, origWidth, origHeight), 0, 0);
+
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = targetWidth;
+    outCanvas.height = targetHeight;
+    const outCtx = outCanvas.getContext('2d');
+    outCtx.imageSmoothingEnabled = true;
+    outCtx.imageSmoothingQuality = 'high';
+    outCtx.drawImage(canvas, 0, 0, targetWidth, targetHeight);
+
+    const outImgData = outCtx.getImageData(0, 0, targetWidth, targetHeight);
+    processedImg = {
+      data: new Uint8ClampedArray(outImgData.data),
+      width: targetWidth,
+      height: targetHeight
+    };
+  }
+
+  const preprocessStats = {
+    origWidth,
+    origHeight,
+    targetWidth,
+    targetHeight,
+    scale,
+    scalePercent: clampedPercent
+  };
+
+  console.log('[Stage 0 - Input Preprocessing]',
+    `Scale: ${clampedPercent}%`,
+    `Original: ${origWidth}x${origHeight}`,
+    `Normalized: ${targetWidth}x${targetHeight}`
+  );
+
+  return { img: processedImg, stats: preprocessStats };
+}
+
 // ---------- 1. 中值滤波降噪（保边，不会像高斯模糊那样磨掉锐利折角） ----------
 export function medianFilter(img, radius) {
   if (radius <= 0) return img;
@@ -754,30 +814,47 @@ export function optimizeGeometry(regions, options = {}) {
     minArea = 1e-4
   } = options;
 
+  let inputPolygons = 0;
+  let inputVertices = 0;
+  let removedDuplicates = 0;
+  let removedCollinears = 0;
+  let removedDegenerates = 0;
+  let outputPolygons = 0;
+  let outputVertices = 0;
+
   let optimizedRegions = [];
 
   for (const region of regions) {
     let optLoops = [];
     
     for (const loop of region.loops) {
+      inputPolygons++;
+      inputVertices += loop.length;
+
       let l = loop.slice();
       
-      // 1. Normalize Polygon (预留接口，当前默认输入已是合法坐标数组)
-      
-      // 2. Remove Duplicate Vertices
+      // 1. Remove Duplicate Vertices
+      const lenBeforeDup = l.length;
       l = removeDuplicateVertices(l, dupEpsilon);
+      removedDuplicates += (lenBeforeDup - l.length);
       
-      // 3. Remove Collinear Vertices
+      // 2. Remove Collinear Vertices
+      const lenBeforeCol = l.length;
       l = removeCollinearVertices(l, collinearEpsilon);
+      removedCollinears += (lenBeforeCol - l.length);
       
       optLoops.push(l);
     }
     
-    // 4. Normalize Orientation & 5. Validate Holes
-    optLoops = normalizeOrientationAndHoles(optLoops);
-    
-    // 6. Remove Degenerate Polygon
+    // 3. Remove Degenerate Polygon
+    const lenBeforeDeg = optLoops.length;
     optLoops = removeDegeneratePolygons(optLoops, minArea);
+    removedDegenerates += (lenBeforeDeg - optLoops.length);
+
+    for (const loop of optLoops) {
+      outputPolygons++;
+      outputVertices += loop.length;
+    }
     
     if (optLoops.length > 0) {
       optimizedRegions.push({
@@ -788,10 +865,21 @@ export function optimizeGeometry(regions, options = {}) {
     }
   }
 
-  // 7. mergeSameColorRegions
   optimizedRegions = mergeSameColorRegions(optimizedRegions);
-  
-  return optimizedRegions;
+
+  const stats = {
+    inputPolygons,
+    inputVertices,
+    removedDuplicates,
+    removedCollinears,
+    removedDegenerates,
+    outputPolygons,
+    outputVertices
+  };
+
+  console.log('[Stage E - Geometry Optimization Stats]', stats);
+
+  return { regions: optimizedRegions, stats };
 }
 
 // ---------- 汇总：完整流水线 ----------
