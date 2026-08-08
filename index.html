@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SuzuSVG — 插画转SVG</title>
+<title>SuzuSVG — 图像转SVG</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="topbar">
     <h1 data-i18n="headerTitle">SuzuSVG</h1>
-    <p class="subtitle" data-i18n="subtitle">(扁平)插画→ 矢量 SVG · 纯本地处理，图片不会上传到任何服务器</p>
+    <p class="subtitle" data-i18n="subtitle">图像 → 矢量 SVG · 纯本地处理，图片不会上传到任何服务器</p>
     <div class="topbar-actions">
       <button id="guideBtn" class="guide-btn">📖 <span data-i18n="guideBtn">使用说明 / 指南</span></button>
       <button id="langToggleBtn" class="lang-btn">🌐 English</button>
@@ -23,6 +23,21 @@
           <span data-i18n="selectImage">选择图片</span>
           <input type="file" id="fileInput" accept="image/*">
         </label>
+      </div>
+
+      <div class="control-block">
+        <label>
+          <span class="control-name" data-i18n="vectorMode">矢量化模式</span>
+        </label>
+        <div class="mode-toggle-group" id="vectorModeGroup">
+          <button type="button" class="mode-btn" data-mode="deconstructive">
+            <span data-i18n="modeDeconstructive">解构/折线模式 (适合硬朗插画)</span>
+          </button>
+          <button type="button" class="mode-btn active" data-mode="smooth">
+            <span data-i18n="modeSmooth">曲线平滑模式</span>
+          </button>
+        </div>
+        <p class="hint" data-i18n="vectorModeHint">选择适合的矢量表达模式。折线模式适合几何硬朗插画与Logo；平滑模式适合自然圆弧插画。</p>
       </div>
 
       <div class="control-block">
@@ -78,6 +93,24 @@
         <p class="hint" data-i18n="simplifyHint">越大路径点越少、边缘越直，适合解构主义风格</p>
       </div>
 
+      <div class="control-block">
+        <label>
+          <span class="control-name" data-i18n="cornerHardness">角点硬度</span>
+          <input type="number" class="control-val-input" id="cornerHardnessVal" min="0" max="100" step="1" value="50">
+        </label>
+        <input type="range" id="cornerHardness" min="0" max="100" value="50" step="1">
+        <p class="hint" data-i18n="cornerHardnessHint">控制角点检测敏感度（高硬度保留更多折线，低硬度把更多平滑轮廓送入曲线拟合）</p>
+      </div>
+
+      <div class="control-block">
+        <label>
+          <span class="control-name" data-i18n="bezierTolerance">曲线拟合容差 (px)</span>
+          <input type="number" class="control-val-input" id="bezierToleranceVal" min="0.1" max="3.0" step="0.1" value="0.8">
+        </label>
+        <input type="range" id="bezierTolerance" min="0.1" max="3.0" value="0.8" step="0.1">
+        <p class="hint" data-i18n="bezierToleranceHint">贝塞尔曲线与原始轮廓允许的最大双向像素误差，超出将自动递归分割或保留原始直线段</p>
+      </div>
+
       <button id="runBtn" class="run-btn" disabled data-i18n="runBtn">开始处理</button>
       <p class="hint run-hint" data-i18n="runBtnHint">提示：因为实际上是代码渲染与算法聚类，即使是同一参数，也可能需要重复运行几次（Reroll）才能出现想要的效果。</p>
 
@@ -104,19 +137,19 @@
     </aside>
 
     <section class="stage-grid">
-      <div class="stage-card">
+      <div class="stage-card" data-stage-name="stageOriginal">
         <h2 data-i18n="stageOriginal">原始图片</h2>
         <div class="canvas-wrap"><canvas id="originalCanvas"></canvas></div>
       </div>
-      <div class="stage-card">
+      <div class="stage-card" data-stage-name="stageA">
         <h2 data-i18n="stageA">阶段A · 降噪</h2>
         <div class="canvas-wrap"><canvas id="denoisedCanvas"></canvas></div>
       </div>
-      <div class="stage-card">
+      <div class="stage-card" data-stage-name="stageBC">
         <h2 data-i18n="stageBC">阶段B/C · 量化+去碎片</h2>
         <div class="canvas-wrap"><canvas id="quantizedCanvas"></canvas></div>
       </div>
-      <div class="stage-card">
+      <div class="stage-card" data-stage-name="stageDE">
         <h2 data-i18n="stageDE">阶段D/E · 矢量结果</h2>
         <div class="canvas-wrap svg-wrap" id="svgContainer"></div>
       </div>
@@ -131,6 +164,11 @@
       GitHub (SuzuSVG)
     </a>
   </footer>
+
+  <!-- 局部放大镜镜头 Floating Magnifier Lens -->
+  <div id="magnifierLens" class="magnifier-lens">
+    <canvas id="magnifierCanvas" width="280" height="280"></canvas>
+  </div>
 
   <!-- 全屏炫酷 拖拽导入 Overlayer -->
   <div id="dragOverlay" class="drag-overlay">
@@ -189,11 +227,14 @@
         <section class="guide-section">
           <h3>⚙️ <span data-i18n="guideParamTitle">参数调优指南</span></h3>
           <ul class="param-list">
+            <li data-i18n="paramMode"><b>矢量化模式：</b>包含“曲线平滑模式”（拟合光滑贝塞尔曲线，适合带弧线插画）与“解构/折线模式”（纯折线 RDP 极简路径，适合硬朗几何插画，实现极致小体积）。</li>
             <li data-i18n="paramScale"><b>缩放比例 (%)：</b>在矢量化之前等比例缩小像素分辨率，能平滑微小像素噪点，极大降低矢量 Path 节点数并提升运行速度。</li>
             <li data-i18n="paramColor"><b>颜色数量：</b>K-means 聚类提取的色块种类。色块越少，生成的矢量图越纯净；过高会导致碎片噪点成倍增加。</li>
             <li data-i18n="paramNoise"><b>降噪半径 / 双边滤波：</b>平滑色彩噪声。勾选双边滤波可以在平滑降噪的同时，更好地保留锐利的色块边缘折角（速度较慢）。</li>
             <li data-i18n="paramDespeckle"><b>碎片过滤阈值：</b>自动把小于该面积（px²）的孤立微小碎片像素归并进相邻最大的颜色，清理椒盐噪点。</li>
             <li data-i18n="paramSimplify"><b>轮廓简化强度：</b>使用 RDP 算法拉直多边形边缘。数值越大节点越少、线条越直，非常适合解构主义风格。</li>
+            <li data-i18n="paramCorner"><b>角点硬度：</b>控制角点检测敏感度。数值越高保留越多硬朗转角折线；数值越低只有明显尖角被识别为角点，将更多连续平滑弧线送入贝塞尔曲线拟合。</li>
+            <li data-i18n="paramBezier"><b>曲线拟合容差 (px)：</b>控制三次贝塞尔曲线与原始轮廓允许的最大双向像素误差。数值越小拟合越精细；数值越大越概括拉直，超标时会自动递归分割或回退为直线段。</li>
             <li data-i18n="paramGeom"><b>几何优化 (Geometry Optimization)：</b>后处理清理冗余/共线顶点与退化多边形（<i>不一定真的会有用，效果取决于具体的图像几何结构</i>）。</li>
             <li data-i18n="paramSeam"><b>渲染接缝保护：</b>给矢量 Path 加上同色微细描边，彻底消除游戏引擎/浏览器渲染时的发丝级抗锯齿缝隙。</li>
           </ul>

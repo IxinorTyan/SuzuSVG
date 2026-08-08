@@ -1,4 +1,4 @@
-import { preprocessInput, medianFilter, bilateralFilter, kmeansQuantize, despeckleAndMerge, traceContoursShared, buildSVG, optimizeGeometry } from './pipeline.js';
+import { preprocessInput, medianFilter, bilateralFilter, kmeansQuantize, despeckleAndMerge, traceContoursShared, fitCurvesToRegions, buildSVG, optimizeGeometry } from './pipeline.js';
 import { initI18n, toggleLanguage, t } from './i18n.js';
 
 const els = {
@@ -13,6 +13,10 @@ const els = {
   despeckleMinAreaVal: document.getElementById('despeckleMinAreaVal'),
   simplifyEpsilon: document.getElementById('simplifyEpsilon'),
   simplifyEpsilonVal: document.getElementById('simplifyEpsilonVal'),
+  cornerHardness: document.getElementById('cornerHardness'),
+  cornerHardnessVal: document.getElementById('cornerHardnessVal'),
+  bezierTolerance: document.getElementById('bezierTolerance'),
+  bezierToleranceVal: document.getElementById('bezierToleranceVal'),
   bilateralToggle: document.getElementById('bilateralToggle'),
   seamGuardToggle: document.getElementById('seamGuardToggle'),
   optimizeGeometryToggle: document.getElementById('optimizeGeometryToggle'),
@@ -29,11 +33,15 @@ const els = {
   guideModal: document.getElementById('guideModal'),
   closeGuideBtn: document.getElementById('closeGuideBtn'),
   dragOverlay: document.getElementById('dragOverlay'),
+  magnifierLens: document.getElementById('magnifierLens'),
+  magnifierCanvas: document.getElementById('magnifierCanvas'),
 };
 
 let currentImageData = null;
 let currentSVGString = null;
+let currentSVGImage = null;
 let currentFileName = 'vectorized';
+let currentMode = 'smooth';
 
 // 初始化多语言
 initI18n();
@@ -41,6 +49,32 @@ els.langToggleBtn.addEventListener('click', () => {
   toggleLanguage();
   updateDownloadSizeDisplay();
 });
+
+// ---- 动态模式切换（Segmented Pill 按钮组事件委托） ----
+const vectorModeGroup = document.getElementById('vectorModeGroup');
+
+function updateModeUI() {
+  const isSmooth = currentMode === 'smooth';
+  const cornerBlock = els.cornerHardness ? els.cornerHardness.closest('.control-block') : null;
+  const bezierBlock = els.bezierTolerance ? els.bezierTolerance.closest('.control-block') : null;
+  if (cornerBlock) cornerBlock.style.display = isSmooth ? '' : 'none';
+  if (bezierBlock) bezierBlock.style.display = isSmooth ? '' : 'none';
+}
+
+if (vectorModeGroup) {
+  vectorModeGroup.addEventListener('click', (e) => {
+    const btn = e.target.closest('.mode-btn');
+    if (!btn) return;
+    const mode = btn.getAttribute('data-mode');
+    if (!mode) return;
+
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentMode = mode;
+    updateModeUI();
+  });
+}
+updateModeUI();
 
 // ---- 说明书 模态框交互逻辑 ----
 if (els.guideBtn && els.guideModal) {
@@ -69,7 +103,7 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
-// ---- 矢量文件体积提示更新 ----
+// ---- 矢量文件体积提示与 SVG 图像转换更新 ----
 function updateDownloadSizeDisplay() {
   if (els.downloadSizeHint) {
     if (currentSVGString) {
@@ -81,8 +115,24 @@ function updateDownloadSizeDisplay() {
   }
 }
 
+function updateSVGImage() {
+  if (!currentSVGString) {
+    currentSVGImage = null;
+    return;
+  }
+  const img = new Image();
+  const blob = new Blob([currentSVGString], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  img.onload = () => {
+    currentSVGImage = img;
+    URL.revokeObjectURL(url);
+  };
+  img.src = url;
+}
+
 // ---- 双向绑定滑块与数值输入框 ----
 function bindRange(rangeEl, valEl) {
+  if (!rangeEl || !valEl) return;
   const min = parseFloat(rangeEl.min);
   const max = parseFloat(rangeEl.max);
 
@@ -116,6 +166,8 @@ bindRange(els.colorCount, els.colorCountVal);
 bindRange(els.medianRadius, els.medianRadiusVal);
 bindRange(els.despeckleMinArea, els.despeckleMinAreaVal);
 bindRange(els.simplifyEpsilon, els.simplifyEpsilonVal);
+bindRange(els.cornerHardness, els.cornerHardnessVal);
+bindRange(els.bezierTolerance, els.bezierToleranceVal);
 
 function setStatus(text) {
   els.status.textContent = text;
@@ -156,6 +208,7 @@ function handleImageFile(file) {
     setStatus(t('statusLoaded', { w: img.width, h: img.height }));
     els.runBtn.disabled = false;
     currentSVGString = null;
+    currentSVGImage = null;
     updateDownloadSizeDisplay();
     URL.revokeObjectURL(url);
     if (els.fileInput) els.fileInput.value = '';
@@ -211,6 +264,124 @@ window.addEventListener('drop', (e) => {
   }
 });
 
+// ---- 局部细节 高清大镜头 浮动放大镜 (Magnifier Lens) ----
+function initMagnifier() {
+  const canvasWraps = document.querySelectorAll('.canvas-wrap');
+  if (!els.magnifierLens || !els.magnifierCanvas) return;
+  const magnifierCtx = els.magnifierCanvas.getContext('2d');
+  if (!magnifierCtx) return;
+
+  const zoom = 4.0; // 4.0x 高清放大倍率
+  const lensSize = 240; // 240px 大口径镜头
+
+  canvasWraps.forEach((wrap) => {
+    wrap.addEventListener('mouseenter', () => {
+      els.magnifierLens.style.display = 'block';
+    });
+
+    wrap.addEventListener('mouseleave', () => {
+      els.magnifierLens.style.display = 'none';
+    });
+
+    wrap.addEventListener('mousemove', (e) => {
+      const canvasEl = wrap.querySelector('canvas');
+      const isSvgWrap = wrap.classList.contains('svg-wrap');
+
+      let sourceEl = canvasEl;
+      let imgWidth = 0;
+      let imgHeight = 0;
+
+      if (isSvgWrap) {
+        if (currentSVGImage && currentSVGImage.complete && currentSVGImage.width > 0) {
+          sourceEl = currentSVGImage;
+          imgWidth = currentSVGImage.width;
+          imgHeight = currentSVGImage.height;
+        } else {
+          els.magnifierLens.style.display = 'none';
+          return;
+        }
+      } else if (canvasEl && canvasEl.width > 0) {
+        imgWidth = canvasEl.width;
+        imgHeight = canvasEl.height;
+      } else {
+        els.magnifierLens.style.display = 'none';
+        return;
+      }
+
+      const rect = wrap.getBoundingClientRect();
+      const wrapW = rect.width;
+      const wrapH = rect.height;
+
+      if (wrapW === 0 || wrapH === 0 || imgWidth === 0 || imgHeight === 0) {
+        els.magnifierLens.style.display = 'none';
+        return;
+      }
+
+      // 计算 object-fit: contain 实际图像渲染区域
+      const wrapAspect = wrapW / wrapH;
+      const imgAspect = imgWidth / imgHeight;
+
+      let renderW, renderH, offsetX, offsetY;
+      if (imgAspect > wrapAspect) {
+        renderW = wrapW;
+        renderH = wrapW / imgAspect;
+        offsetX = 0;
+        offsetY = (wrapH - renderH) / 2;
+      } else {
+        renderH = wrapH;
+        renderW = wrapH * imgAspect;
+        offsetX = (wrapW - renderW) / 2;
+        offsetY = 0;
+      }
+
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      // 归一化坐标 rx, ry
+      const rx = (mouseX - offsetX) / renderW;
+      const ry = (mouseY - offsetY) / renderH;
+
+      if (rx < 0 || rx > 1 || ry < 0 || ry > 1) {
+        els.magnifierLens.style.display = 'none';
+        return;
+      }
+
+      els.magnifierLens.style.display = 'block';
+      els.magnifierLens.style.left = `${e.clientX - lensSize / 2}px`;
+      els.magnifierLens.style.top = `${e.clientY - lensSize / 2}px`;
+
+      // 消除宽高不一致形变的正方形 1:1 采样计算
+      const scale = renderW / imgWidth;
+      const cropSize = (lensSize / zoom) / scale;
+
+      const sx = rx * imgWidth;
+      const sy = ry * imgHeight;
+
+      magnifierCtx.clearRect(0, 0, els.magnifierCanvas.width, els.magnifierCanvas.height);
+      magnifierCtx.imageSmoothingEnabled = true;
+      magnifierCtx.imageSmoothingQuality = 'high';
+
+      try {
+        magnifierCtx.drawImage(
+          sourceEl,
+          sx - cropSize / 2,
+          sy - cropSize / 2,
+          cropSize,
+          cropSize,
+          0,
+          0,
+          els.magnifierCanvas.width,
+          els.magnifierCanvas.height
+        );
+      } catch (err) {
+        // Safe Fallback
+      }
+    });
+  });
+}
+
+initMagnifier();
+
 // 让浏览器有机会先重绘UI（显示"正在处理"），再执行下一步耗时计算
 function nextFrame() {
   return new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
@@ -221,6 +392,7 @@ els.runBtn.addEventListener('click', async () => {
   els.runBtn.disabled = true;
   els.downloadBtn.disabled = true;
   currentSVGString = null;
+  currentSVGImage = null;
   updateDownloadSizeDisplay();
   els.svgContainer.innerHTML = '';
 
@@ -228,17 +400,20 @@ els.runBtn.addEventListener('click', async () => {
   const medianRadius = parseInt(els.medianRadius.value, 10);
   const despeckleMinArea = parseInt(els.despeckleMinArea.value, 10);
   const simplifyEpsilon = parseFloat(els.simplifyEpsilon.value);
+  const cornerHardness = parseInt(els.cornerHardness ? els.cornerHardness.value : 50, 10);
+  const bezierTolerance = parseFloat(els.bezierTolerance ? els.bezierTolerance.value : 0.8);
+  const isSmoothMode = currentMode === 'smooth';
 
   try {
-    // 阶段0：输入预处理（按百分比缩放）
+    // Stage 0: Input Preprocessing
     setStatus(t('statusStage0'));
     await nextFrame();
     const preprocessRes = preprocessInput(currentImageData, { scalePercent: els.scalePercent.value });
     const processedImageData = preprocessRes.img;
     await nextFrame();
 
-    // 阶段A：降噪
-    setStatus(t('statusStageA'));
+    // Stage 1: Color Quantization & Despeckling
+    setStatus(t('statusStage1'));
     await nextFrame();
     const denoised = els.bilateralToggle.checked
       ? bilateralFilter(processedImageData, medianRadius)
@@ -246,58 +421,85 @@ els.runBtn.addEventListener('click', async () => {
     drawImageDataToCanvas(denoised, els.denoisedCanvas);
     await nextFrame();
 
-    // 阶段B：颜色量化
-    setStatus(t('statusStageB'));
-    await nextFrame();
     const { labels, palette, width, height } = kmeansQuantize(denoised, colorCount);
-    drawImageDataToCanvas(labelsToImageData(labels, palette, width, height), els.quantizedCanvas);
-    await nextFrame();
-
-    // 阶段C：碎片清理
-    setStatus(t('statusStageC'));
-    await nextFrame();
     despeckleAndMerge(labels, width, height, despeckleMinArea);
     drawImageDataToCanvas(labelsToImageData(labels, palette, width, height), els.quantizedCanvas);
     await nextFrame();
 
-    // 阶段D：轮廓提取 + 简化
-    setStatus(t('statusStageD'));
+    // Stage 2 & 3: Boundary Extraction & Contour Simplification
+    setStatus(t('statusStage2'));
     await nextFrame();
-    // 拓扑无缝版：共享边界只在路口之间被简化一次，相邻色块复用同一份坐标，
-    // 无论simplifyEpsilon多大，色块之间都不会因为"各自简化各自的"而错开产生缝隙。
-    let regions = traceContoursShared(labels, width, height, palette.length, simplifyEpsilon);
+    const contourRes = traceContoursShared(labels, width, height, palette.length, simplifyEpsilon);
+    let regions = typeof contourRes === 'object' && contourRes.regions ? contourRes.regions : contourRes;
+    const contourStats = typeof contourRes === 'object' && contourRes.stats ? contourRes.stats : null;
 
-    // 阶段E：几何优化 (可选)
+    let curveStats = null;
+    if (isSmoothMode) {
+      // Stage 4 & 5: Corner Detection & Curve Fitting (Cubic Bezier Fitting)
+      setStatus(t('statusStage5'));
+      await nextFrame();
+      const curveRes = fitCurvesToRegions(regions, { cornerHardness, bezierTolerance });
+      regions = curveRes.regions;
+      curveStats = curveRes.stats;
+    } else {
+      console.log('[Vector Mode] Deconstructive Line Mode selected. Using pure RDP polyline output for crisp/sharp art.');
+    }
+
+    // Stage 6: Geometry Optimization (Optional)
     let geomStats = null;
     if (els.optimizeGeometryToggle.checked) {
-      setStatus(t('statusStageE'));
+      setStatus(t('statusStage6'));
       await nextFrame();
       const geomRes = optimizeGeometry(regions);
       regions = geomRes.regions;
       geomStats = geomRes.stats;
     }
 
-    setStatus(t('statusStageF'));
+    // Stage 7: SVG Generation
+    setStatus(t('statusStage7'));
     await nextFrame();
     const svgRes = buildSVG(regions, palette, width, height, 0, els.seamGuardToggle.checked);
     currentSVGString = typeof svgRes === 'object' ? svgRes.svg : svgRes;
     const svgStats = typeof svgRes === 'object' ? svgRes.stats : null;
     els.svgContainer.innerHTML = currentSVGString;
+    updateSVGImage();
 
-    // 控制台汇总对比输出
-    console.log('==== [SuzuSVG Performance & Vector Complexity Summary] ====');
-    console.log(`Scale Percent: ${els.scalePercent.value}%`);
-    console.log(`Processed Resolution: ${width}x${height}`);
+    // 控制台完整 0-7 阶段性能与复杂度对比输出
+    console.log('==== [SuzuSVG Stage 0-7 Pipeline Summary] ====');
+    console.log(`Vectorization Mode: ${currentMode}`);
+    console.log(`Input Scale: ${els.scalePercent.value}% | Resolution: ${width}x${height}`);
+    if (contourStats) {
+      console.log(`Stage 2 & 3 Contour Simplification Stats:`);
+      console.log(` - Raw Boundary Loop Vertices: ${contourStats.rawLoopVertexCount}`);
+      console.log(` - RDP Simplified Vertices: ${contourStats.rdpSimplifiedVertexCount}`);
+    }
+    if (curveStats) {
+      console.log(`Stage 4 & 5 Adaptive Curve Fitting Detailed Stats:`, curveStats);
+      console.log(` - Total Loops: ${curveStats.totalLoops}`);
+      console.log(` - Curve Fitting Candidates: ${curveStats.curveFittingCandidates}`);
+      console.log(` - Curve Fitting Skipped: ${curveStats.curveFittingSkipped}`);
+      console.log(` - Curve Fitting Attempted: ${curveStats.curveFittingAttempted}`);
+      console.log(` - Input Vertices: ${curveStats.inputVertices}`);
+      console.log(` - Original Segment Count: ${curveStats.originalSegmentCount}`);
+      console.log(` - Output Line Segments: ${curveStats.outputLineSegments}`);
+      console.log(` - Output Cubic Bezier Segments: ${curveStats.outputCubicSegments}`);
+      console.log(` - Final Segment Count: ${curveStats.finalSegmentCount}`);
+      console.log(` - Output Control Points: ${curveStats.outputControlPoints}`);
+      console.log(` - Successful Bezier: ${curveStats.fittingSuccessCount}`);
+      console.log(` - Fallback: ${curveStats.fallbackCount}`);
+      console.log(` - Temporary Sampling Peak: ${curveStats.temporarySamplingPeak}`);
+      console.log(` - Geometry Object Count: ${curveStats.geometryObjectCount}`);
+      console.log(` - Estimated Geometry Memory: ${curveStats.estimatedGeometryMemoryKB} KB (Trend comparison only, not browser heap)`);
+      console.log(` - Max Bidirectional Error: ${curveStats.maxBidirectionalError.toFixed(3)} px`);
+    }
     if (geomStats) {
-      console.log(`Geometry Optimization Stats:`, geomStats);
-    } else {
-      console.log(`Geometry Optimization: Disabled`);
+      console.log(`Stage 6 Geometry Optimization Stats:`, geomStats);
     }
     if (svgStats) {
-      console.log(`SVG Output Stats: Path Count = ${svgStats.pathCount}, Total Vertices = ${svgStats.totalVertices}, Size = ${(svgStats.fileSizeChars / 1024).toFixed(2)} KB`);
+      console.log(`Stage 7 SVG Stats: Path Count = ${svgStats.pathCount}, Total Control Vertices = ${svgStats.totalVertices}, Size = ${(svgStats.fileSizeChars / 1024).toFixed(2)} KB`);
     }
 
-    const totalPaths = regions.reduce((s, r) => s + r.loops.length, 0);
+    const totalPaths = regions.reduce((s, r) => s + (r.pathSegments ? r.pathSegments.length : r.loops.length), 0);
     setStatus(t('statusDone', { colors: palette.length, paths: totalPaths }));
     els.downloadBtn.disabled = false;
     updateDownloadSizeDisplay();
